@@ -1,8 +1,8 @@
 package commercial.controllers
 
 import java.nio.ByteBuffer
-import java.util.concurrent.TimeUnit
 
+import awswrappers.kinesisfirehose._
 import com.amazonaws.auth.profile.ProfileCredentialsProvider
 import com.amazonaws.services.kinesisfirehose.model.{PutRecordRequest, Record}
 import com.amazonaws.services.kinesisfirehose.{AmazonKinesisFirehoseAsync, AmazonKinesisFirehoseAsyncClientBuilder}
@@ -15,7 +15,12 @@ import play.api.libs.json.JsValue
 import play.api.libs.json.Json.toBytes
 import play.api.mvc._
 
+import scala.concurrent.ExecutionContext
+import scala.util.control.NonFatal
+
 class PrebidAnalyticsController(val controllerComponents: ControllerComponents) extends BaseController with Logging {
+
+  private implicit val ec: ExecutionContext = controllerComponents.executionContext
 
   // todo credentials
   // todo cloudform firehose
@@ -41,7 +46,10 @@ class PrebidAnalyticsController(val controllerComponents: ControllerComponents) 
 
   def insert(): Action[JsValue] = Action(parse.json) { implicit request =>
     if (prebidAnalytics.isSwitchedOn) {
-      firehose.putRecordAsync(putRequest(toBytes(request.body)))
+      val result = firehose.putRecordFuture(putRequest(toBytes(request.body)))
+      result.failed foreach {
+        case NonFatal(e) => log.error(s"Failed to put '${request.body}'", e)
+      }
       TinyResponse.noContent()
     } else
       serve404
@@ -52,14 +60,5 @@ class PrebidAnalyticsController(val controllerComponents: ControllerComponents) 
       TinyResponse.noContent(Some("OPTIONS, PUT"))
     else
       serve404
-  }
-
-  def test(): Action[AnyContent] = Action { _ =>
-    val data = "test data 6" + "\n"
-
-    val result = firehose.putRecordAsync(putRequest(data.getBytes))
-    println(result.get(10, TimeUnit.SECONDS))
-
-    Ok("yes")
   }
 }
